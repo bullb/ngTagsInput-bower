@@ -1,13 +1,16 @@
+// jshint ignore: start
 /*!
  * ngTagsInput v3.0.0
  * http://mbenford.github.io/ngTagsInput
  *
- * Copyright (c) 2013-2015 Michael Benford
+ * Copyright (c) 2013-2016 Michael Benford
  * License: MIT
  *
- * Generated at 2015-07-13 02:08:11 -0300
+ * Generated at 2016-02-23 16:21:33 +1100
  */
 (function() {
+'use strict';
+
 'use strict';
 
 var KEYS = {
@@ -27,7 +30,11 @@ var KEYS = {
 var MAX_SAFE_INTEGER = 9007199254740991;
 var SUPPORTED_INPUT_TYPES = ['text', 'email', 'url'];
 
+'use strict';
+
 var tagsInput = angular.module('ngTagsInput', []);
+
+'use strict';
 
 /**
  * @ngdoc directive
@@ -67,18 +74,19 @@ var tagsInput = angular.module('ngTagsInput', []);
  *    will be allowed. When this flag is true, addOnEnter, addOnComma, addOnSpace and addOnBlur values are ignored.
  * @param {boolean=} [spellcheck=true] Flag indicating whether the browser's spellcheck is enabled for the input field or not.
  * @param {expression=} [onTagAdding=NA] Expression to evaluate that will be invoked before adding a new tag. The new
- *    tag is available as $tag. This method must return either true or false. If false, the tag will not be added.
+ *    tag is available as $tag. This method must return either a boolean value or a promise. If either a false value or a rejected
+ *    promise is returned, the tag will not be added.
  * @param {expression=} [onTagAdded=NA] Expression to evaluate upon adding a new tag. The new tag is available as $tag.
  * @param {expression=} [onInvalidTag=NA] Expression to evaluate when a tag is invalid. The invalid tag is available as $tag.
  * @param {expression=} [onTagRemoving=NA] Expression to evaluate that will be invoked before removing a tag. The tag
- *    is available as $tag. This method must return either true or false. If false, the tag will not be removed.
- * @param {expression=} [onTagRemoved=NA] Expression to evaluate upon removing an existing tag. The removed tag is
- *    available as $tag.
+ *    is available as $tag. This method must return either a boolean value or a promise. If either a false value or a rejected
+ *    promise is returned, the tag will not be removed.
+ * @param {expression=} [onTagRemoved=NA] Expression to evaluate upon removing an existing tag. The removed tag is available as $tag.
  * @param {expression=} [onTagClicked=NA] Expression to evaluate upon clicking an existing tag. The clicked tag is available as $tag.
  */
-tagsInput.directive('tagsInput', ["$timeout", "$document", "$window", "tagsInputConfig", "tiUtil", function($timeout, $document, $window, tagsInputConfig, tiUtil) {
+tagsInput.directive('tagsInput', ["$timeout", "$document", "$window", "$q", "tagsInputConfig", "tiUtil", function($timeout, $document, $window, $q, tagsInputConfig, tiUtil) {
     function TagList(options, events, onTagAdding, onTagRemoving) {
-        var self = {}, getTagText, setTagText, tagIsValid;
+        var self = {}, getTagText, setTagText, canAddTag, canRemoveTag;
 
         getTagText = function(tag) {
             return tiUtil.safeToString(tag[options.displayProperty]);
@@ -88,15 +96,19 @@ tagsInput.directive('tagsInput', ["$timeout", "$document", "$window", "tagsInput
             tag[options.displayProperty] = text;
         };
 
-        tagIsValid = function(tag) {
+        canAddTag = function(tag) {
             var tagText = getTagText(tag);
+            var valid = tagText &&
+                        tagText.length >= options.minLength &&
+                        tagText.length <= options.maxLength &&
+                        options.allowedTagsPattern.test(tagText) &&
+                        !tiUtil.findInObjectArray(self.items, tag, options.keyProperty || options.displayProperty);
 
-            return tagText &&
-                   tagText.length >= options.minLength &&
-                   tagText.length <= options.maxLength &&
-                   options.allowedTagsPattern.test(tagText) &&
-                   !tiUtil.findInObjectArray(self.items, tag, options.keyProperty || options.displayProperty) &&
-                   onTagAdding({ $tag: tag });
+            return $q.when(valid && onTagAdding({ $tag: tag })).then(tiUtil.promisifyValue);
+        };
+
+        canRemoveTag = function(tag) {
+            return $q.when(onTagRemoving({ $tag: tag })).then(tiUtil.promisifyValue);
         };
 
         self.items = [];
@@ -116,26 +128,27 @@ tagsInput.directive('tagsInput', ["$timeout", "$document", "$window", "tagsInput
 
             setTagText(tag, tagText);
 
-            if (tagIsValid(tag)) {
-                self.items.push(tag);
-                events.trigger('tag-added', { $tag: tag });
-            }
-            else if (tagText) {
-                events.trigger('invalid-tag', { $tag: tag });
-            }
-
-            return tag;
+            return canAddTag(tag)
+                .then(function() {
+                    self.items.push(tag);
+                    events.trigger('tag-added', { $tag: tag });
+                })
+                .catch(function() {
+                    if (tagText) {
+                      events.trigger('invalid-tag', { $tag: tag });
+                    }
+                });
         };
 
         self.remove = function(index) {
             var tag = self.items[index];
 
-            if (onTagRemoving({ $tag: tag }))  {
+            return canRemoveTag(tag).then(function() {
                 self.items.splice(index, 1);
                 self.clearSelection();
                 events.trigger('tag-removed', { $tag: tag });
                 return tag;
-            }
+            });
         };
 
         self.select = function(index) {
@@ -232,9 +245,6 @@ tagsInput.directive('tagsInput', ["$timeout", "$document", "$window", "tagsInput
                     addTag: function(tag) {
                         return $scope.tagList.add(tag);
                     },
-                    focusInput: function() {
-                        input[0].focus();
-                    },
                     getTags: function() {
                         return $scope.tagList.items;
                     },
@@ -264,6 +274,23 @@ tagsInput.directive('tagsInput', ["$timeout", "$document", "$window", "tagsInput
                     }
                 };
             };
+
+            this.registerGroupTags = function() {
+                var input = $element.find('input');
+
+                return {
+                    addTag: function(tag) {
+                        return $scope.tagList.add(tag);
+                    },
+                    getOptions: function() {
+                        return $scope.options;
+                    },
+                    on: function(name, handler) {
+                        $scope.events.on(name, handler);
+                        return this;
+                    }
+                };
+            };
         }],
         link: function(scope, element, attrs, ngModelCtrl) {
             var hotkeys = [KEYS.enter, KEYS.comma, KEYS.space, KEYS.backspace, KEYS.delete, KEYS.left, KEYS.right],
@@ -272,12 +299,17 @@ tagsInput.directive('tagsInput', ["$timeout", "$document", "$window", "tagsInput
                 options = scope.options,
                 input = element.find('input'),
                 validationOptions = ['minTags', 'maxTags', 'allowLeftoverText'],
-                setElementValidity;
+                setElementValidity,
+                focusInput;
 
             setElementValidity = function() {
                 ngModelCtrl.$setValidity('maxTags', tagList.items.length <= options.maxTags);
                 ngModelCtrl.$setValidity('minTags', tagList.items.length >= options.minTags);
                 ngModelCtrl.$setValidity('leftoverText', scope.hasFocus || options.allowLeftoverText ? true : !scope.newTag.text());
+            };
+
+            focusInput = function() {
+                $timeout(function() { input[0].focus(); });
             };
 
             ngModelCtrl.$isEmpty = function(value) {
@@ -361,7 +393,7 @@ tagsInput.directive('tagsInput', ["$timeout", "$document", "$window", "tagsInput
                         if (scope.disabled) {
                             return;
                         }
-                        input[0].focus();
+                        focusInput();
                     }
                 },
                 tag: {
@@ -385,6 +417,7 @@ tagsInput.directive('tagsInput', ["$timeout", "$document", "$window", "tagsInput
                     // automatically, but since the model is an array, $setViewValue does nothing and it's up to us to do it.
                     // Unfortunately this won't trigger any registered $parser and there's no safe way to do it.
                     ngModelCtrl.$setDirty();
+                    focusInput();
                 })
                 .on('invalid-tag', function() {
                     scope.newTag.invalid = true;
@@ -431,14 +464,12 @@ tagsInput.directive('tagsInput', ["$timeout", "$document", "$window", "tagsInput
                         tagList.addText(scope.newTag.text());
                     }
                     else if (shouldEditLastTag) {
-                        var tag;
-
                         tagList.selectPrior();
-                        tag = tagList.removeSelected();
-
-                        if (tag) {
-                            scope.newTag.text(tag[options.displayProperty]);
-                        }
+                        tagList.removeSelected().then(function(tag) {
+                            if (tag) {
+                                scope.newTag.text(tag[options.displayProperty]);
+                            }
+                        });
                     }
                     else if (shouldRemove) {
                         tagList.removeSelected();
@@ -473,6 +504,8 @@ tagsInput.directive('tagsInput', ["$timeout", "$document", "$window", "tagsInput
     };
 }]);
 
+
+'use strict';
 
 /**
  * @ngdoc directive
@@ -509,6 +542,8 @@ tagsInput.directive('tiTagItem', ["tiUtil", function(tiUtil) {
     };
 }]);
 
+
+'use strict';
 
 /**
  * @ngdoc directive
@@ -698,8 +733,6 @@ tagsInput.directive('autoComplete', ["$document", "$timeout", "$sce", "$q", "tag
                 if (suggestionList.selected) {
                     tagsInput.addTag(angular.copy(suggestionList.selected));
                     suggestionList.reset();
-                    tagsInput.focusInput();
-
                     added = true;
                 }
                 return added;
@@ -775,6 +808,8 @@ tagsInput.directive('autoComplete', ["$document", "$timeout", "$sce", "$q", "tag
 }]);
 
 
+'use strict';
+
 /**
  * @ngdoc directive
  * @name tiAutocompleteMatch
@@ -810,6 +845,158 @@ tagsInput.directive('tiAutocompleteMatch', ["$sce", "tiUtil", function($sce, tiU
 }]);
 
 
+'use strict';
+
+tagsInput.directive('groupFilter', ["$timeout", "$document", "$sce", "$q", "$window", "tagsInputConfig", "tiUtil", function($timeout, $document, $sce, $q, $window, tagsInputConfig, tiUtil) {
+    function GroupSuggestionList(loadFn, options, events) {
+        var self = {}, getDifference, lastPromise, getTagId;
+
+        getTagId = function() {
+            return options.tagsInput.keyProperty || options.tagsInput.displayProperty;
+        };
+
+        getDifference = function(array1, array2) {
+            return array1.filter(function(item) {
+                return !tiUtil.findInObjectArray(array2, item, getTagId(), function(a, b) {
+                    if (options.tagsInput.replaceSpacesWithDashes) {
+                        a = tiUtil.replaceSpacesWithDashes(a);
+                        b = tiUtil.replaceSpacesWithDashes(b);
+                    }
+                    return tiUtil.defaultComparer(a, b);
+                });
+            });
+        };
+
+        self.reset = function() {
+            lastPromise = null;
+
+            self.items = [];
+            self.visible = false;
+            self.index = -1;
+            self.selected = null;
+            self.query = null;
+        };
+
+        self.show = function() {
+            self.visible = true;
+        };
+
+        self.load = tiUtil.debounce(function(query, tags) {
+            var promise = $q.when(loadFn({ $query: query }));
+            lastPromise = promise;
+
+            promise.then(function(items) {
+                if (promise !== lastPromise) {
+                    return;
+                }
+                items = tiUtil.makeObjectArray(items.data || items, getTagId());
+                items = getDifference(items, tags);
+                self.items = items;
+
+                if (self.items.length > 0) {
+                    self.show();
+                }
+                else {
+                    self.reset();
+                }
+            });
+        });
+
+        self.select = function(index) {
+            if (index < 0) {
+                index = self.items.length - 1;
+            }
+            else if (index >= self.items.length) {
+                index = 0;
+            }
+            self.index = index;
+            self.selected = self.items[index];
+            events.trigger('suggestion-selected', index);
+        };
+
+        self.reset();
+
+        return self;
+    }
+    return {
+        restrict: 'E',
+        require: '^tagsInput',
+        scope: { source: '&' },
+        templateUrl: 'ngTagsInput/grouped-tags.html',
+        controller: ["$scope", "$element", "$attrs", function($scope, $element, $attrs) {
+            $scope.events = tiUtil.simplePubSub();
+
+           tagsInputConfig.load('groupFilter', $scope, $attrs, {
+                template: [String, 'ngTagsInput/auto-complete-match.html'],
+                debounceDelay: [Number, 100],
+                minLength: [Number, 3],
+                highlightMatchedText: [Boolean, true],
+                maxResultsToShow: [Number, 10],
+                loadOnDownArrow: [Boolean, false],
+                loadOnEmpty: [Boolean, false],
+                loadOnFocus: [Boolean, false],
+                selectFirstMatch: [Boolean, true],
+                displayProperty: [String, '']
+            });
+
+            $scope.suggestionList = new GroupSuggestionList($scope.source, $scope.options, $scope.events);
+        }],
+        link: function(scope, element, attrs, tagsInputCtrl) {
+            var hotkeys = [KEYS.enter, KEYS.tab, KEYS.escape, KEYS.up, KEYS.down],
+                suggestionList = scope.suggestionList,
+                tagsInput = tagsInputCtrl.registerGroupTags(),
+                options = scope.options,
+                events = scope.events;
+
+            options.tagsInput = tagsInput.getOptions();
+
+            scope.eventHandlers = {
+                groupTagShow: {
+                    click: function() {
+                        suggestionList.load(undefined, []);
+                    }
+                }
+            };
+            scope.addSuggestionByIndex = function(index) {
+                suggestionList.select(index);
+                scope.addSuggestion();
+            };
+
+            scope.addSuggestion = function() {
+                var added = false,
+                    selectedGroupID = null;
+
+                if (suggestionList.selected) {
+                    if(suggestionList.selected.isGroup) {
+                        //Load The Tags in this group
+                        selectedGroupID = suggestionList.selected.id;
+                        suggestionList.reset();
+                        suggestionList.load(selectedGroupID, []);
+                    } else {
+                        //Select the tag adn reset
+                        tagsInput.addTag(angular.copy(suggestionList.selected));
+                        suggestionList.reset();
+                        added = true;
+                    }
+                }
+                return added;
+            };
+
+            scope.track = function(item) {
+                return item[options.tagsInput.keyProperty || options.tagsInput.displayProperty];
+            };
+
+            tagsInput
+                .on('tag-added tag-removed input-change input-blur', function(value) {
+                    suggestionList.reset();
+                });
+        }
+    };
+}]);
+
+
+'use strict';
+
 /**
  * @ngdoc directive
  * @name tiTranscludeAppend
@@ -825,6 +1012,8 @@ tagsInput.directive('tiTranscludeAppend', function() {
         });
     };
 });
+
+'use strict';
 
 /**
  * @ngdoc directive
@@ -881,6 +1070,8 @@ tagsInput.directive('tiAutosize', ["tagsInputConfig", function(tagsInputConfig) 
     };
 }]);
 
+'use strict';
+
 /**
  * @ngdoc directive
  * @name tiBindAttrs
@@ -898,6 +1089,8 @@ tagsInput.directive('tiBindAttrs', function() {
         }, true);
     };
 });
+
+'use strict';
 
 /**
  * @ngdoc service
@@ -1006,6 +1199,8 @@ tagsInput.provider('tagsInputConfig', function() {
 });
 
 
+'use strict';
+
 /***
  * @ngdoc service
  * @name tiUtil
@@ -1014,7 +1209,7 @@ tagsInput.provider('tagsInputConfig', function() {
  * @description
  * Helper methods used internally by the directive. Should not be called directly from user code.
  */
-tagsInput.factory('tiUtil', ["$timeout", function($timeout) {
+tagsInput.factory('tiUtil', ["$timeout", "$q", function($timeout, $q) {
     var self = {};
 
     self.debounce = function(fn, delay) {
@@ -1104,6 +1299,11 @@ tagsInput.factory('tiUtil', ["$timeout", function($timeout) {
         return event.shiftKey || event.ctrlKey || event.altKey || event.metaKey;
     };
 
+    self.promisifyValue = function(value) {
+        value = angular.isUndefined(value) ? true : value;
+        return $q[value ? 'when' : 'reject']();
+    };
+
     self.simplePubSub = function() {
         var events = {};
         return {
@@ -1131,20 +1331,30 @@ tagsInput.factory('tiUtil', ["$timeout", function($timeout) {
 
 /* HTML templates */
 tagsInput.run(["$templateCache", function($templateCache) {
-    $templateCache.put('ngTagsInput/tags-input.html',
+  'use strict';
+
+  $templateCache.put('ngTagsInput/tags-input.html',
     "<div class=\"host\" tabindex=\"-1\" ng-click=\"eventHandlers.host.click()\" ti-transclude-append><div class=\"tags\" ng-class=\"{focused: hasFocus}\"><ul class=\"tag-list\"><li class=\"tag-item\" ng-repeat=\"tag in tagList.items track by track(tag)\" ng-class=\"{ selected: tag == tagList.selected }\" ng-click=\"eventHandlers.tag.click(tag)\"><ti-tag-item data=\"::tag\"></ti-tag-item></li></ul><input class=\"input\" autocomplete=\"off\" ng-model=\"newTag.text\" ng-model-options=\"{getterSetter: true}\" ng-keydown=\"eventHandlers.input.keydown($event)\" ng-focus=\"eventHandlers.input.focus($event)\" ng-blur=\"eventHandlers.input.blur($event)\" ng-paste=\"eventHandlers.input.paste($event)\" ng-trim=\"false\" ng-class=\"{'invalid-tag': newTag.invalid}\" ng-disabled=\"disabled\" ti-bind-attrs=\"{type: options.type, placeholder: options.placeholder, tabindex: options.tabindex, spellcheck: options.spellcheck}\" ti-autosize></div></div>"
   );
+
 
   $templateCache.put('ngTagsInput/tag-item.html',
     "<span ng-bind=\"$getDisplayText()\"></span> <a class=\"remove-button\" ng-click=\"$removeTag()\" ng-bind=\"::$$removeTagSymbol\"></a>"
   );
 
+
   $templateCache.put('ngTagsInput/auto-complete.html',
     "<div class=\"autocomplete\" ng-if=\"suggestionList.visible\"><ul class=\"suggestion-list\"><li class=\"suggestion-item\" ng-repeat=\"item in suggestionList.items track by track(item)\" ng-class=\"{selected: item == suggestionList.selected}\" ng-click=\"addSuggestionByIndex($index)\" ng-mouseenter=\"suggestionList.select($index)\"><ti-autocomplete-match data=\"::item\"></ti-autocomplete-match></li></ul></div>"
   );
 
+
   $templateCache.put('ngTagsInput/auto-complete-match.html',
     "<span ng-bind-html=\"$highlight($getDisplayText())\"></span>"
+  );
+
+
+  $templateCache.put('ngTagsInput/grouped-tags.html',
+    "<span class=\"groupedTag\" ng-click=\"eventHandlers.groupTagShow.click()\"></span><div class=\"groupedTagList autocomplete\" ng-if=\"suggestionList.visible\"><ul class=\"suggestion-list\"><li class=\"suggestion-item\" ng-repeat=\"item in suggestionList.items track by track(item)\" ng-class=\"{selected: item == suggestionList.selected, 'group-suggestion': item.isGroup}\" ng-click=\"addSuggestionByIndex($index)\" ng-mouseenter=\"suggestionList.select($index)\">{{item.name}}</li></ul></div>"
   );
 }]);
 
