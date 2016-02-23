@@ -157,4 +157,11 @@ tags-input .autocomplete .suggestion-item em {
   background-color: #fff;
 }
 
+tags-input .groupedTag {
+  position: absolute;
+  top: 0;
+  right: 10px;
+  height: 26px;
+}
+
 /*# sourceMappingURL=ng-tags-input.css.map */
