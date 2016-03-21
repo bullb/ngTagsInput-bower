@@ -6,7 +6,7 @@
  * Copyright (c) 2013-2016 Michael Benford
  * License: MIT
  *
- * Generated at 2016-03-07 11:42:22 +1100
+ * Generated at 2016-03-18 16:05:27 +1100
  */
 (function() {
 'use strict';
@@ -875,15 +875,18 @@ tagsInput.directive('groupFilter', ["$timeout", "$document", "$sce", "$q", "$win
             self.index = -1;
             self.selected = null;
             self.query = null;
+            self.loading = false;
         };
 
         self.show = function() {
+            self.loading = false;
             self.visible = true;
         };
 
         self.load = tiUtil.debounce(function(query, tags) {
             var promise = $q.when(loadFn({ $query: query }));
             lastPromise = promise;
+            self.loading = true;
 
             promise.then(function(items) {
                 if (promise !== lastPromise) {
@@ -1354,7 +1357,7 @@ tagsInput.run(["$templateCache", function($templateCache) {
 
 
   $templateCache.put('ngTagsInput/grouped-tags.html',
-    "<span class=\"groupedTag\" ng-click=\"eventHandlers.groupTagShow.click()\"></span><div class=\"groupedTagList autocomplete\" ng-if=\"suggestionList.visible\"><ul class=\"suggestion-list\"><li class=\"suggestion-item\" ng-repeat=\"item in suggestionList.items track by track(item)\" ng-class=\"{selected: item == suggestionList.selected, 'group-suggestion': item.isGroup}\" ng-click=\"addSuggestionByIndex($index)\" ng-mouseenter=\"suggestionList.select($index)\">{{item.name}}</li></ul></div>"
+    "<span class=\"groupedTag\" ng-click=\"eventHandlers.groupTagShow.click()\"></span><div class=\"groupedTagList autocomplete autocompleteLoading\" ng-if=\"suggestionList.loading\"><span>Loading Tags...</span></div><div class=\"groupedTagList autocomplete\" ng-if=\"suggestionList.visible\"><ul class=\"suggestion-list\"><li class=\"suggestion-item\" ng-repeat=\"item in suggestionList.items track by track(item)\" ng-class=\"{selected: item == suggestionList.selected, 'group-suggestion': item.isGroup}\" ng-click=\"addSuggestionByIndex($index)\" ng-mouseenter=\"suggestionList.select($index)\">{{item.name}}</li></ul></div>"
   );
 }]);
 

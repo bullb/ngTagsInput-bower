@@ -163,5 +163,9 @@ tags-input .groupedTag {
   right: 10px;
   height: 26px;
 }
+tags-input .autocompleteLoading {
+  font-size: 12px;
+  font-weight: bold;
+}
 
 /*# sourceMappingURL=ng-tags-input.css.map */
